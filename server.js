@@ -23,9 +23,10 @@ const movieSchema = new mongoose.Schema({
   trailer: String,
   description: String,
   rating: Number,
-  reviews: [{ user: String, review: String }],
+  avgRating: { type: Number, default: 0 },  // Added avgRating to store the average rating
+  reviews: [{ user: String, review: String, rating: Number }],
   actors: [String],  // Array of actors
-  genre: [String],     // Movie genre
+  genre: [String],   // Movie genre
 });
 
 // Explicitly specify the collection name as 'movies'
@@ -47,20 +48,46 @@ app.get('/movies', async (req, res) => {
         { genre: { $regex: searchQuery, $options: 'i' } },
       ]
     });
+
+    // Calculate average rating for each movie
+    for (const movie of movies) {
+      if (movie.reviews.length > 0) {
+        const averageRating = movie.reviews.reduce((sum, r) => sum + r.rating, 0) / movie.reviews.length;
+        movie.avgRating = averageRating.toFixed(2);
+      }
+    }
+
     res.json(movies);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-// Add a new movie to the database
-app.post('/movies', async (req, res) => {
-  const newMovie = new Movie(req.body);
+// Add a new review to a movie
+app.post('/movies/:id/reviews', async (req, res) => {
+  const movieId = req.params.id;
+  const { review, rating, user } = req.body;
+
+  if (!review || !rating || rating < 1 || rating > 5) {
+    return res.status(400).json({ error: "Invalid review or rating." });
+  }
+
   try {
-    await newMovie.save();
-    res.status(201).json(newMovie);  // Return the created movie
+    const movie = await Movie.findById(movieId);
+
+    // Add the new review to the movie
+    movie.reviews.push({ user: user || "Anonymous", review, rating });
+
+    // Recalculate average rating
+    const averageRating = movie.reviews.reduce((sum, r) => sum + r.rating, 0) / movie.reviews.length;
+    movie.avgRating = averageRating.toFixed(2);
+
+    // Save the movie with the new review and updated average rating
+    await movie.save();
+
+    res.json(movie);  // Return the updated movie
   } catch (err) {
-    res.status(400).json({ error: err.message });
+    res.status(500).json({ error: err.message });
   }
 });
 
